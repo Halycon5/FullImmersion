@@ -18,7 +18,7 @@ Bigscreen Beyond on SteamVR) before the real app is built:
 
 ## Build (Windows)
 
-Visual Studio 2022 with the C++ workload and a Windows 11 SDK. The first configure downloads the OpenXR SDK.
+Visual Studio 2026 with the C++ workload and a Windows 11 SDK. The first configure downloads the OpenXR SDK.
 
 ```
 cmake --preset windows
