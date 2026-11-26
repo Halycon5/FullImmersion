@@ -55,7 +55,7 @@ int wmain(int argc, wchar_t** argv) {
     printf("first frame       %.1f ms after start\n", t_first - t_made);
     printf("frames            %llu in %.1f s (%.1f fps; WGC only sends when the window changes)\n", s.frames, secs,
            double(s.frames) / secs);
-    printf("latency           avg %.2f ms, max %.2f ms (composed -> in our texture)\n", s.avg_latency_ms(),
+    printf("latency           avg %.2f ms, max %.2f ms (the frame's own timestamp -> in our texture; below 0 means it reached us before that time)\n", s.avg_latency_ms(),
            s.max_latency_ms);
     printf("saved             out\\s1_first.bmp, out\\s1_last.bmp\n");
   } catch (winrt::hresult_error const& e) {

@@ -77,7 +77,13 @@ static int run(int argc, wchar_t** argv) {
   XrSystemGetInfo sgi{XR_TYPE_SYSTEM_GET_INFO};
   sgi.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
   XrSystemId system = XR_NULL_SYSTEM_ID;
-  XR(xrGetSystem(g_instance, &sgi, &system));
+  for (int tries = 0;; ++tries) {  // SteamVR may still be waking the headset
+    XrResult r = xrGetSystem(g_instance, &sgi, &system);
+    if (r == XR_SUCCESS) break;
+    if (r != XR_ERROR_FORM_FACTOR_UNAVAILABLE || tries >= 30) XR(r);
+    if (tries == 0) printf("headset           not found yet: waiting up to 30 s (is it on and connected?)\n");
+    Sleep(1000);
+  }
   XrSystemProperties sp{XR_TYPE_SYSTEM_PROPERTIES};
   XR(xrGetSystemProperties(g_instance, system, &sp));
   printf("headset           %s (max %u layers)\n", sp.systemName, sp.graphicsProperties.maxLayerCount);
