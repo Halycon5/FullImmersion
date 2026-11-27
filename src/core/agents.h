@@ -55,7 +55,7 @@ struct Note {
   int id = 0;
   std::string text, by;
   float yaw = 0, height = 0.45f, distance = 1.2f;
-  float width = 0.28f;
+  float width = 0.34f;
 };
 
 class AgentDesk {

@@ -312,6 +312,8 @@ void Renderer::draw_view(const View& v, ID3D11RenderTargetView* rtv, UINT w, UIN
     ctx_->Unmap(cb_panel_.get(), 0);
   };
 
+  draw_beams(beams, true);
+
   // Panels far to near, so nearer ones cover farther ones without a depth buffer.
   std::vector<const PanelDraw*> order;
   for (auto& p : panels) order.push_back(&p);
@@ -338,17 +340,25 @@ void Renderer::draw_view(const View& v, ID3D11RenderTargetView* rtv, UINT w, UIN
   ID3D11ShaderResourceView* none = nullptr;
   ctx_->PSSetShaderResources(0, 1, &none);
 
-  if (!beams.empty()) {
-    ctx_->VSSetShader(vs_beam_.get(), nullptr, 0);
-    ctx_->PSSetShader(ps_beam_.get(), nullptr, 0);
-    for (auto& b : beams) {
-      put(ItemCB{{b.from.x, b.from.y, b.from.z, 0},
-                 {b.to.x, b.to.y, b.to.z, 0},
-                 {b.width, 0, 0, 0},
-                 {b.rgba[0], b.rgba[1], b.rgba[2], b.rgba[3]},
-                 {}});
-      ctx_->Draw(6, 0);
-    }
+  draw_beams(beams, false);
+}
+
+void Renderer::draw_beams(const std::vector<Beam>& beams, bool behind) {
+  D3D11_MAPPED_SUBRESOURCE m;
+  ctx_->OMSetBlendState(blend_.get(), nullptr, 0xffffffff);
+  ctx_->VSSetShader(vs_beam_.get(), nullptr, 0);
+  ctx_->PSSetShader(ps_beam_.get(), nullptr, 0);
+  for (auto& b : beams) {
+    if (b.behind != behind) continue;
+    ItemCB ic{{b.from.x, b.from.y, b.from.z, 0},
+              {b.to.x, b.to.y, b.to.z, 0},
+              {b.width, 0, 0, 0},
+              {b.rgba[0], b.rgba[1], b.rgba[2], b.rgba[3]},
+              {}};
+    ctx_->Map(cb_panel_.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m);
+    memcpy(m.pData, &ic, sizeof ic);
+    ctx_->Unmap(cb_panel_.get(), 0);
+    ctx_->Draw(6, 0);
   }
 }
 

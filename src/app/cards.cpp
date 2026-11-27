@@ -112,9 +112,31 @@ std::string encode_png(const std::vector<uint32_t>& bgra, UINT w, UINT h) {
   winrt::com_ptr<IWICBitmapFrameEncode> frame;
   if (FAILED(enc->CreateNewFrame(frame.put(), nullptr)) || FAILED(frame->Initialize(nullptr))) return {};
   frame->SetSize(w, h);
-  WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGR;  // opaque: the room has no holes
+  // The encoder may answer with another format than asked for: write whatever it settled on.
+  WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
   frame->SetPixelFormat(&fmt);
-  if (FAILED(frame->WritePixels(h, w * 4, w * h * 4, (BYTE*)bgra.data())) || FAILED(frame->Commit()) ||
+  std::vector<BYTE> rows;
+  UINT stride = 0;
+  if (fmt == GUID_WICPixelFormat24bppBGR) {
+    stride = (w * 3 + 3) & ~3u;
+    rows.assign(size_t(stride) * h, 0);
+    for (UINT y = 0; y < h; ++y)
+      for (UINT x = 0; x < w; ++x) {
+        uint32_t p = bgra[size_t(y) * w + x];
+        BYTE* d = &rows[size_t(y) * stride + x * 3];
+        d[0] = BYTE(p), d[1] = BYTE(p >> 8), d[2] = BYTE(p >> 16);
+      }
+  } else if (fmt == GUID_WICPixelFormat32bppBGRA || fmt == GUID_WICPixelFormat32bppBGR) {
+    stride = w * 4;
+    rows.resize(size_t(stride) * h);
+    for (size_t i = 0; i < bgra.size(); ++i) {
+      uint32_t p = bgra[i] | 0xff000000u;  // opaque: the room has no holes
+      memcpy(&rows[i * 4], &p, 4);
+    }
+  } else {
+    return {};
+  }
+  if (FAILED(frame->WritePixels(h, stride, UINT(rows.size()), rows.data())) || FAILED(frame->Commit()) ||
       FAILED(enc->Commit()))
     return {};
   STATSTG st{};

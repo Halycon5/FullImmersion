@@ -449,6 +449,7 @@ struct App {
         b.from = c.centre() - Vec3{0, c.panel_height() / 2, 0};
         b.to = t.centre() + Vec3{0, t.panel_height() / 2, 0};
         b.width = 0.003f;
+        b.behind = true;
         b.rgba[0] = float((colour >> 16) & 255) / 255, b.rgba[1] = float((colour >> 8) & 255) / 255;
         b.rgba[2] = float(colour & 255) / 255, b.rgba[3] = 0.6f;
         agent_beams.push_back(b);
