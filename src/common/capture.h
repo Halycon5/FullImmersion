@@ -14,7 +14,8 @@ struct CaptureStats {
 
 class WindowCapture {
  public:
-  WindowCapture(ID3D11Device* device, HWND hwnd);
+  // mips: keep a full mip chain (made on the GPU with each new frame) for panels drawn smaller than 1:1.
+  WindowCapture(ID3D11Device* device, HWND hwnd, bool mips = false);
   ~WindowCapture();
   WindowCapture(const WindowCapture&) = delete;
   WindowCapture& operator=(const WindowCapture&) = delete;
@@ -22,7 +23,7 @@ class WindowCapture {
   bool poll();  // true when a new frame was copied into texture(). WGC only sends a frame when the window changes.
   bool wait_frame(double timeout_ms);  // polls until a frame arrives or the time runs out
 
-  ID3D11Texture2D* texture() const;               // B8G8R8A8_TYPELESS, width() x height()
+  ID3D11Texture2D* texture() const;               // B8G8R8A8_TYPELESS, width() x height() (mip 0)
   ID3D11ShaderResourceView* srv(bool srgb) const;  // srgb: sampled values come out linear
   UINT width() const;
   UINT height() const;

@@ -7,7 +7,26 @@ The plan: [FullImmersion: architecture and MVP plan](https://claude.ai/artifact/
 
 ## Where it stands
 
-**S0, the spikes.** Three small programs that prove the hard parts on Milk's PC (Windows 11, RTX 3060,
+**M1, the flat room** (`FullImmersion.exe`): a 3D room over your monitor with your real windows pinned round you.
+
+| Do | How |
+|---|---|
+| Pin a window | Right-click empty space, then **Pin a window** |
+| Use a window | Just point at it: click, scroll, right-click and type as usual |
+| Move a panel | Drag the bar under it |
+| Resize a panel | Scroll on the bar (Shift+scroll: nearer or farther) |
+| Panel menu | Right-click the bar (bigger, smaller, closer, farther, 1:1, unpin) |
+| Look round / zoom | Drag empty space / scroll on empty space |
+| Hide or show the room | Ctrl+Alt+F |
+| Quit | Ctrl+Alt+Q |
+
+The layout is saved to `%APPDATA%\FullImmersion\layout.json` and windows are found again by program and title
+when it starts. A log is kept beside it.
+
+How the mouse reaches a real window: the window is slid behind the room so the point you're on sits under the
+cursor, and the room keeps a one-pixel hole at the cursor's tip (`src/app/passthrough.h`).
+
+**S0, the spikes** (done). Three small programs that proved the hard parts on Milk's PC (Windows 11, RTX 3060,
 Bigscreen Beyond on SteamVR) before the real app is built:
 
 | Spike | Proves | Run |
@@ -23,7 +42,10 @@ Visual Studio 2026 with the C++ workload and a Windows 11 SDK. The first configu
 ```
 cmake --preset windows
 cmake --build --preset release
-build\Release\s1_capture.exe --list
+build\Release\FullImmersion.exe
+build\Release\fi_tests.exe
 ```
+
+On other systems only the core and its tests build (`cmake -S . -B build && cmake --build build && ctest --test-dir build`).
 
 Each spike saves its pictures under `out\` in the folder it runs from.
