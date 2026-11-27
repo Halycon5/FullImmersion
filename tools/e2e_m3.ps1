@@ -21,7 +21,8 @@ $wins = (Call GET /windows).body | ConvertFrom-Json
 Check ($wins.Count -gt 0) "open windows are listed ($($wins.Count))"
 
 Check ((Call POST /pin '{"match": "no window is called this"}').status -eq 404) "pinning a window that isn't there: 404"
-Check ((Call POST /pin '{"match": "FullImmersion input test"}').status -eq 409) "pinning one already pinned: 409"
+$mine = $wins | Where-Object { $_.pinned } | Select-Object -First 1
+Check ($mine -and (Call POST /pin "{`"window`": $($mine.window)}").status -eq 409) "pinning one already pinned: 409"
 $r = Call POST /arrange '{"panels": [0], "around": -20, "distance": 1.6}'
 Check ($r.status -eq 200) "arrange"
 $scene = (Call GET /scene).body | ConvertFrom-Json
