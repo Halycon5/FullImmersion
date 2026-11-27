@@ -106,6 +106,18 @@ static void test_place_on_ray() {
   CHECK(near(yaw, 0.3f) && near(height, -0.2f));
 }
 
+static void test_place_from_a_hand() {
+  // A hand 0.3 m right and 0.4 m down, pointing straight ahead: the panel lands ahead of the hand.
+  float yaw, height;
+  Room::place_on_ray({{0.3f, -0.4f, 0}, {0, 0, -1}}, 2, yaw, height);
+  Vec3 at{std::sin(yaw) * 2, height, -std::cos(yaw) * 2};
+  CHECK(near(at.x, 0.3f) && near(at.y, -0.4f) && at.z < 0);
+  // A hand ray rotated by a quaternion, checked against the plain direction.
+  Quat q = quat_axis_angle({0, 1, 0}, -kPi / 2);  // turned right
+  Vec3 d = rotate(q, {0, 0, -1});
+  CHECK(near(d.x, 1) && near(d.z, 0));
+}
+
 static void test_place_new_steps_aside() {
   Room room;
   Panel a;
@@ -181,6 +193,7 @@ int main() {
   test_pick_handle();
   test_camera_round_trip();
   test_place_on_ray();
+  test_place_from_a_hand();
   test_place_new_steps_aside();
   test_json_round_trip();
   test_json_rejects();

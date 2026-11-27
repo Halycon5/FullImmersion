@@ -5,9 +5,18 @@
 //   (Shift+scroll: nearer or farther). Right-click the handle for the panel's menu.
 //   Drag empty space to look round; scroll on empty space to zoom. Right-click empty space to pin a window.
 //   Ctrl+Alt+F hides or shows the room; Ctrl+Alt+Q quits. The layout is kept in %APPDATA%\FullImmersion.
+//
+// M2, `FullImmersion --vr`: the same room in the headset. Each controller is a pointer.
+//   Trigger on a window: the window's left button (the cursor follows that hand). A: its right button.
+//   Stick on a window: scroll it. Grip on a panel (or trigger on its handle): grab it and carry it round you;
+//   while holding, stick up/down pushes it away or pulls it in, left/right makes it smaller or bigger.
+//   A small window on the monitor mirrors the headset; right-click it to pin a window or quit.
 #include "app/passthrough.h"
 #include "app/renderer.h"
+#include "app/xr.h"
 #include "common/capture.h"
+#include "common/input.h"
+#include <set>
 #include <windowsx.h>
 #include <shlobj.h>
 #include <algorithm>
@@ -70,6 +79,23 @@ struct App {
   float drag_yaw = 0, drag_pitch = 0;
 
   std::optional<Hit> hover;  // what the cursor is on now
+  std::set<uint64_t> fresh;  // windows with a new picture this frame
+
+  // --- the headset (M2) ---
+  bool vr = false;
+  std::unique_ptr<Xr> xr;
+  struct HandState {
+    bool select = false, squeeze = false, alt = false;  // last frame's buttons, to see presses
+    int grabbed = -1;                                   // the panel this hand carries
+    float grab_dyaw = 0, grab_dh = 0;
+    HWND button_down = nullptr, right_down = nullptr;  // a real window holding this hand's button
+    float scroll = 0;                                   // stick scroll not sent yet, in wheel units
+    std::optional<Hit> hit;
+  } hands[2];
+  int mouse_hand = 1;  // the hand the cursor follows: the last one to click (the right to begin with)
+  Pose head;
+  double vr_stat_at = 0, vr_cpu_ms = 0;
+  int vr_frames = 0, vr_dropped = 0;
 
   void touch() {
     dirty = true;
@@ -131,11 +157,17 @@ struct App {
     captures.erase(room.panels[i].window);
     logf("unpinned %s", room.panels[i].exe.c_str());
     room.panels.erase(room.panels.begin() + i);
+    for (auto& h : hands) {
+      if (h.grabbed == i) h.grabbed = -1;
+      else if (h.grabbed > i) --h.grabbed;
+      h.hit.reset();
+    }
     pass->close();
     touch();
   }
 
   void update_windows() {
+    fresh.clear();
     for (auto& p : room.panels) {
       if (!p.window) continue;
       HWND w = win_of(p);
@@ -158,6 +190,7 @@ struct App {
       }
       auto& cap = *it->second;
       if (cap.poll() && cap.width() && cap.height()) {
+        fresh.insert(p.window);
         float a = float(cap.height()) / float(cap.width());
         if (std::fabs(a - p.aspect) > 0.002f) {
           p.aspect = a;
@@ -347,8 +380,216 @@ struct App {
     logf(visible ? "room shown" : "room hidden");
   }
 
+  // --- the headset ---
+
+  // The cursor onto (u, v) of a real window, for a controller. A point off every monitor (a panel can show a
+  // window that is partly off screen) is brought on by sliding the window. True if the window, and no other,
+  // is under the cursor there.
+  bool cursor_to(HWND target, float u, float v) {
+    if (!IsWindow(target) || IsIconic(target)) return false;
+    POINT pt = uv_to_screen(target, u, v);
+    if (!MonitorFromPoint(pt, MONITOR_DEFAULTTONULL)) {
+      MONITORINFO mi{sizeof mi};
+      GetMonitorInfoW(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
+      POINT c{(mi.rcWork.left + mi.rcWork.right) / 2, (mi.rcWork.top + mi.rcWork.bottom) / 2};
+      RECT win;
+      GetWindowRect(target, &win);
+      SetWindowPos(target, nullptr, win.left + (c.x - pt.x), win.top + (c.y - pt.y), 0, 0,
+                   SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
+      pt = c;
+    }
+    SetCursorPos(pt.x, pt.y);
+    HWND under = WindowFromPoint(pt);
+    return under && GetAncestor(under, GA_ROOT) == target;
+  }
+
+  void vr_hand(int i, const XrHand& in, float dt) {
+    HandState& h = hands[i];
+    bool sel_down = in.select && !h.select, sel_up = !in.select && h.select;
+    bool sq_down = in.squeeze && !h.squeeze, sq_up = !in.squeeze && h.squeeze;
+    bool alt_down = in.alt && !h.alt, alt_up = !in.alt && h.alt;
+    h.select = in.select, h.squeeze = in.squeeze, h.alt = in.alt;
+
+    // Buttons let go always reach the window that had them, tracked or not.
+    if (sel_up && h.button_down) {
+      pass->send_button(WM_LBUTTONUP);
+      h.button_down = nullptr;
+    }
+    if (alt_up && h.right_down) {
+      pass->send_button(WM_RBUTTONUP);
+      h.right_down = nullptr;
+    }
+    if ((sq_up || (sel_up && !in.squeeze)) && h.grabbed >= 0) {
+      h.grabbed = -1;
+      touch();
+    }
+    if (!in.tracked) {
+      h.hit.reset();
+      return;
+    }
+    Ray ray = in.ray();
+
+    // Carrying a panel.
+    if (h.grabbed >= 0 && h.grabbed < (int)room.panels.size()) {
+      Panel& p = room.panels[h.grabbed];
+      p.distance = std::clamp(p.distance * std::pow(2.0f, in.stick_y * dt), 0.4f, 8.0f);
+      p.width = std::clamp(p.width * std::pow(2.0f, in.stick_x * dt), 0.15f, 8.0f);
+      float yaw, height;
+      Room::place_on_ray(ray, p.distance, yaw, height);
+      p.yaw = yaw + h.grab_dyaw;
+      p.height = height + h.grab_dh;
+      h.hit = room.pick(ray);
+      touch();
+      return;
+    }
+
+    h.hit = room.pick(ray);
+    auto grab = [&](int panel) {
+      Panel& p = room.panels[panel];
+      float yaw, height;
+      Room::place_on_ray(ray, p.distance, yaw, height);
+      h.grabbed = panel;
+      h.grab_dyaw = p.yaw - yaw;
+      h.grab_dh = p.height - height;
+      xr->pulse(i, 0.02f, 0.5f);
+    };
+    if (h.hit && (sq_down || (sel_down && h.hit->handle))) {
+      grab(h.hit->panel);
+      return;
+    }
+
+    // On a live window: this hand is its mouse.
+    if (on_live_picture(h.hit) || h.button_down || h.right_down) {
+      HWND target = h.button_down ? h.button_down : h.right_down ? h.right_down : win_of(room.panels[h.hit->panel]);
+      float u = h.hit ? h.hit->u : 0.5f, v = h.hit ? h.hit->v : 0.5f;
+      bool same = h.hit && !h.hit->handle && win_of(room.panels[h.hit->panel]) == target;
+      if (sel_down || alt_down) {
+        mouse_hand = i;
+        raise_and_focus(target);
+      }
+      if (i != mouse_hand || !same) return;  // off the window it holds: the cursor stays where it was
+      bool ok = cursor_to(target, u, v);
+      if (!ok) return;
+      if (sel_down) {
+        pass->send_button(WM_LBUTTONDOWN);
+        h.button_down = target;
+        xr->pulse(i, 0.01f, 0.3f);
+      }
+      if (alt_down) {
+        pass->send_button(WM_RBUTTONDOWN);
+        h.right_down = target;
+        xr->pulse(i, 0.01f, 0.3f);
+      }
+      h.scroll += in.stick_y * dt * 12.0f * WHEEL_DELTA;
+      if (std::fabs(in.stick_y) < 0.15f) h.scroll = 0;
+      if (std::fabs(h.scroll) >= WHEEL_DELTA / 4) {
+        int step = int(h.scroll);
+        pass->send_wheel(step, false);
+        h.scroll -= float(step);
+      }
+    }
+  }
+
+  void vr_frame() {
+    if (!xr->poll()) {
+      logf("the headset session ended");
+      running = false;
+      return;
+    }
+    update_windows();
+    XrFrame f;
+    double t0 = now_ms();
+    bool live = xr->begin(f);
+    if (live) {
+      head = f.head;
+      Vec3 fwd = rotate(head.orientation, {0, 0, -1});
+      room.camera.yaw = std::atan2(fwd.x, -fwd.z);  // so a new panel goes where you look
+      room.camera.pitch = std::asin(std::clamp(fwd.y, -1.0f, 1.0f));
+      for (int i = 0; i < 2; ++i) vr_hand(i, f.hands[i], f.dt);
+    }
+
+    // What each hand points at.
+    std::vector<Beam> beams;
+    std::vector<DotLayer> dots;
+    for (int i = 0; i < 2 && live; ++i) {
+      if (!f.hands[i].tracked) continue;
+      Ray ray = f.hands[i].ray();
+      Beam b;
+      b.from = ray.origin;
+      auto& hit = hands[i].hit;
+      b.to = ray.origin + ray.dir * (hit ? hit->t : 2.0f);
+      if (!hit) b.rgba[3] = 0.35f;
+      beams.push_back(b);
+      if (hit && !hit->handle) {
+        const Panel& p = room.panels[hit->panel];
+        dots.push_back({b.to - p.forward() * 0.002f, p.yaw});
+      }
+    }
+
+    // Live windows go to the compositor as quad layers, the nearest first while it has room.
+    std::vector<int> order;
+    for (int i = 0; i < (int)room.panels.size(); ++i)
+      if (picture_of(room.panels[i])) order.push_back(i);
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+      return length(room.panels[a].centre() - head.position) < length(room.panels[b].centre() - head.position);
+    });
+    size_t budget = xr->max_layers() > 1 + dots.size() ? xr->max_layers() - 1 - dots.size() : 0;
+    if (order.size() > budget) order.resize(budget);
+    std::vector<PanelLayer> layers;
+    std::vector<bool> layered(room.panels.size(), false);
+    for (int i : order) {
+      const Panel& p = room.panels[i];
+      auto& cap = *captures[p.window];
+      layers.push_back({p.window, &p, cap.srv(true), cap.width(), cap.height(), fresh.count(p.window) > 0});
+      layered[i] = true;
+    }
+
+    std::vector<PanelDraw> eyes, mirror;
+    for (int i = 0; i < (int)room.panels.size(); ++i) {
+      PanelDraw d;
+      d.panel = &room.panels[i];
+      d.picture = picture_of(room.panels[i]);
+      for (auto& h : hands) {
+        if (h.hit && h.hit->panel == i) (h.hit->handle ? d.handle_hovered : d.hovered) = true;
+        if (h.grabbed == i) d.grabbed = true;
+      }
+      mirror.push_back(d);
+      d.picture_elsewhere = layered[i];
+      eyes.push_back(d);
+    }
+    if (live) xr->end(f, eyes, beams, layers, dots);
+    double cpu = now_ms() - t0;
+
+    // The mirror: your view, a little wider, on the monitor.
+    if (visible && renderer.width()) {
+      float aspect = float(renderer.width()) / float(renderer.height());
+      View v = View::of_pose(head, -aspect * 0.7f, aspect * 0.7f, -0.7f, 0.7f);
+      v.floor_y = xr->floor_y();
+      renderer.draw_window(v, mirror, beams);
+      renderer.present();
+    }
+    if (!live) Sleep(10);
+    if (dirty && now_ms() - dirty_at > 800) save();
+
+    if (live) {
+      ++vr_frames;
+      vr_cpu_ms += cpu;
+      if (!f.should_render) ++vr_dropped;
+    }
+    if (now_ms() - vr_stat_at > 5000) {
+      double secs = (now_ms() - vr_stat_at) / 1000.0;
+      if (vr_stat_at > 0)
+        logf("vr: %.1f frames/s, %.2f ms CPU each, %d not shown, %zu window layers, floor %.2f m", vr_frames / secs,
+             vr_frames ? vr_cpu_ms / vr_frames : 0.0, vr_dropped, layers.size(), xr->floor_y());
+      vr_stat_at = now_ms();
+      vr_frames = vr_dropped = 0;
+      vr_cpu_ms = 0;
+    }
+  }
+
   // --- the frame ---
   void frame() {
+    if (vr) return vr_frame();
     update_windows();
     POINT local;
     hover.reset();
@@ -382,11 +623,16 @@ LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
   App* app = g_app;
   switch (msg) {
     case WM_MOUSEACTIVATE:
+      if (app && app->vr) break;
       return MA_NOACTIVATE;  // clicking the room never takes the keyboard from your window
     case WM_MOUSEMOVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
     case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK:
     case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL:
+      if (app && app->vr) {
+        if (msg == WM_RBUTTONUP) app->room_menu();
+        return 0;
+      }
       if (app && app->pass) app->on_mouse(msg, wp, lp);
       return 0;
     case WM_HOTKEY:
@@ -417,6 +663,37 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   app.layout_path = dir + L"\\layout.json";
   _wfopen_s(&g_log, (dir + L"\\log.txt").c_str(), L"a");
   logf("--- FullImmersion starting");
+  int argc = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  for (int i = 1; i < argc; ++i)
+    if (std::wstring_view(argv[i]) == L"--vr") app.vr = true;
+  LocalFree(argv);
+
+  // The headset first: it says which GPU everything has to be on.
+  winrt::com_ptr<IDXGIAdapter> xr_adapter;
+  if (app.vr) {
+    app.xr = std::make_unique<Xr>();
+    std::string err;
+    if (!app.xr->init(err)) {
+      logf("headset: %s", err.c_str());
+      MessageBoxA(nullptr, err.c_str(), "FullImmersion", MB_ICONERROR);
+      return 1;
+    }
+    logf("headset: %s, up to %u layers", app.xr->runtime_name().c_str(), app.xr->max_layers());
+    winrt::com_ptr<IDXGIFactory1> factory;
+    CreateDXGIFactory1(__uuidof(IDXGIFactory1), factory.put_void());
+    winrt::com_ptr<IDXGIAdapter1> a;
+    for (UINT i = 0; factory && factory->EnumAdapters1(i, a.put()) != DXGI_ERROR_NOT_FOUND; ++i, a = nullptr) {
+      DXGI_ADAPTER_DESC1 d;
+      a->GetDesc1(&d);
+      LUID want = app.xr->adapter();
+      if (d.AdapterLuid.LowPart == want.LowPart && d.AdapterLuid.HighPart == want.HighPart) {
+        xr_adapter = a.as<IDXGIAdapter>();
+        logf("headset GPU: %s", narrow(d.Description).c_str());
+        break;
+      }
+    }
+  }
 
   // The room covers the monitor the cursor is on.
   POINT c;
@@ -424,6 +701,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   MONITORINFO mi{sizeof mi};
   GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
   RECT r = mi.rcMonitor;
+  if (app.vr) {  // a plain window, the headset's mirror
+    LONG w = 1280, h = 720;
+    r = {mi.rcWork.left + 40, mi.rcWork.top + 40, mi.rcWork.left + 40 + w, mi.rcWork.top + 40 + h};
+    AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
+  }
 
   WNDCLASSEXW wc{sizeof wc};
   wc.lpfnWndProc = wndproc;
@@ -432,13 +714,26 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   wc.lpszClassName = L"FullImmersionRoom";
   wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
   RegisterClassExW(&wc);
-  app.hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_NOACTIVATE, wc.lpszClassName, L"FullImmersion", WS_POPUP, r.left,
-                             r.top, r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
+  if (app.vr)
+    app.hwnd = CreateWindowExW(0, wc.lpszClassName, L"FullImmersion (headset)", WS_OVERLAPPEDWINDOW, r.left, r.top,
+                               r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
+  else
+    app.hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_NOACTIVATE, wc.lpszClassName, L"FullImmersion", WS_POPUP,
+                               r.left, r.top, r.right - r.left, r.bottom - r.top, nullptr, nullptr, inst, nullptr);
   if (!app.hwnd) return 1;
 
   try {
-    app.device = make_device();
+    app.device = make_device(xr_adapter.get());
     app.renderer.init(app.hwnd, app.device.get());
+    if (app.vr) {
+      std::string err;
+      if (!app.xr->start(app.device.get(), &app.renderer, err)) {
+        logf("headset: %s", err.c_str());
+        MessageBoxA(nullptr, err.c_str(), "FullImmersion", MB_ICONERROR);
+        return 1;
+      }
+      logf("headset session started");
+    }
   } catch (std::exception const& e) {
     logf("renderer failed: %s", e.what());
     MessageBoxA(nullptr, e.what(), "FullImmersion", MB_ICONERROR);
@@ -455,7 +750,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     logf("Ctrl+Alt+F is taken by another program");
   if (!RegisterHotKey(app.hwnd, kHotkeyQuit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'Q'))
     logf("Ctrl+Alt+Q is taken by another program");
-  ShowWindow(app.hwnd, SW_SHOWNOACTIVATE);
+  ShowWindow(app.hwnd, app.vr ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE);
   logf("room on %ldx%ld at %ld,%ld", r.right - r.left, r.bottom - r.top, r.left, r.top);
 
   MSG msg;
@@ -473,8 +768,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
       Sleep(100);
     }
   }
+  for (auto& h : app.hands) {  // never leave a real button held down
+    if (h.button_down) app.pass->send_button(WM_LBUTTONUP);
+    if (h.right_down) app.pass->send_button(WM_RBUTTONUP);
+  }
   app.pass->close();
   app.save();
+  app.xr.reset();
   app.captures.clear();
   logf("--- FullImmersion closed");
   DestroyWindow(app.hwnd);
