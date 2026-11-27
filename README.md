@@ -40,6 +40,20 @@ the monitor mirrors what you see; right-click it to pin a window or quit.
 The cursor follows the hand that last clicked. A window partly off screen is slid on when you point into the
 part that's off, so the click lands. The log notes frames per second and our own time per frame every 5 s.
 
+**M3, agents in the room** (any mode): agents come in through a door on `127.0.0.1` (port 7717 up; port and a
+fresh token in `%APPDATA%\FullImmersion\agent_door.json` each time the room starts). They can read the scene,
+pin, move, unpin and arrange panels, leave notes, say what they're doing, and get a PNG of the room. They show as
+name cards floating over the panel they're working on. They can't click or type into your windows: those routes
+are refused by name. The routes are listed in `src/core/agents.h`; `tools\fi.ps1` calls them, e.g.
+
+```
+tools\fi.ps1 GET /scene
+tools\fi.ps1 POST /arrange '{"panels": ["docs", "code", "terminal"], "around": 0}' -Agent Ada
+tools\fi.ps1 GET "/look?yaw=0&w=1280&h=720" -Out room.png
+```
+
+`tools\e2e_m3.bat` tests the door end to end (it never touches the mouse or keyboard).
+
 **S0, the spikes** (done). Three small programs that proved the hard parts on Milk's PC (Windows 11, RTX 3060,
 Bigscreen Beyond on SteamVR) before the real app is built:
 
