@@ -18,6 +18,7 @@
 #include "common/input.h"
 #include <set>
 #include <windowsx.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <algorithm>
 #include <cstdarg>
