@@ -432,22 +432,33 @@ struct App {
     extra_pictures.clear();
     agent_beams.clear();
     extras.reserve(desk.agents.size() + desk.notes.size());
+    std::map<int, int> over;  // agents already floating over each panel
     for (auto& a : desk.agents) {
       uint32_t colour = palette[std::hash<std::string>{}(a.name) % 6];
       Panel c;
       c.exe = "agent";
-      c.yaw = a.yaw;
-      c.height = 0.42f;
-      c.distance = 1.75f;
       c.width = 0.32f;
       auto* pic = cards->get(widen(a.name + ", " + a.state), widen(a.says), colour, c.aspect);
+      bool on_panel = a.looking_at >= 0 && a.looking_at < (int)room.panels.size();
+      if (on_panel) {  // floating just over the top of what it's working on, side by side with any others there
+        const Panel& t = room.panels[a.looking_at];
+        int k = over[a.looking_at]++;
+        c.distance = t.distance + 0.03f;
+        c.yaw = t.yaw + (float(k) * (c.width + 0.03f) - t.width / 2 + c.width / 2) / c.distance;
+        c.height = t.height + t.panel_height() / 2 + Panel::kHandleGap + c.panel_height() / 2 + 0.02f;
+      } else {  // a ring above the panels' band
+        c.yaw = a.yaw;
+        c.distance = 1.9f;
+        c.height = 0.62f;
+      }
       extras.push_back(c);
       extra_pictures.push_back(pic);
-      if (a.looking_at >= 0 && a.looking_at < (int)room.panels.size()) {
+      if (on_panel) {
         const Panel& t = room.panels[a.looking_at];
         Beam b;
         b.from = c.centre() - Vec3{0, c.panel_height() / 2, 0};
-        b.to = t.centre() + Vec3{0, t.panel_height() / 2, 0};
+        b.to = b.from;  // a short tether down to the panel's top edge
+        b.to.y = t.height + t.panel_height() / 2;
         b.width = 0.003f;
         b.behind = true;
         b.rgba[0] = float((colour >> 16) & 255) / 255, b.rgba[1] = float((colour >> 8) & 255) / 255;
