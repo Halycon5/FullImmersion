@@ -43,7 +43,7 @@ class Renderer {
   // Into any target (an eye's swapchain image), w x h.
   void draw_view(const View& v, ID3D11RenderTargetView* rtv, UINT w, UINT h, const std::vector<PanelDraw>& panels,
                  const std::vector<Beam>& beams);
-  void present();
+  void present(UINT sync_interval = 1);  // 0 in the headset: the monitor must never hold its frames back
   UINT width() const { return w_; }
   UINT height() const { return h_; }
   Ray ray_through(const Camera& cam, float px, float py) const;  // a pixel of the window into the room

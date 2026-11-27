@@ -499,8 +499,8 @@ struct App {
     }
     update_windows();
     XrFrame f;
+    bool live = xr->begin(f);  // waits for the headset's next frame
     double t0 = now_ms();
-    bool live = xr->begin(f);
     if (live) {
       head = f.head;
       Vec3 fwd = rotate(head.orientation, {0, 0, -1});
@@ -559,7 +559,6 @@ struct App {
       eyes.push_back(d);
     }
     if (live) xr->end(f, eyes, beams, layers, dots);
-    double cpu = now_ms() - t0;
 
     // The mirror: your view, a little wider, on the monitor.
     if (visible && renderer.width()) {
@@ -567,8 +566,9 @@ struct App {
       View v = View::of_pose(head, -aspect * 0.7f, aspect * 0.7f, -0.7f, 0.7f);
       v.floor_y = xr->floor_y();
       renderer.draw_window(v, mirror, beams);
-      renderer.present();
+      renderer.present(0);
     }
+    double cpu = now_ms() - t0;
     if (!live) Sleep(10);
     if (dirty && now_ms() - dirty_at > 800) save();
 

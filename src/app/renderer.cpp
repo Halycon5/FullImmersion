@@ -384,8 +384,8 @@ void Renderer::blit(ID3D11ShaderResourceView* srv, ID3D11RenderTargetView* rtv, 
   ctx_->PSSetShaderResources(0, 1, &none);
 }
 
-void Renderer::present() {
-  if (swap_) swap_->Present(1, 0);
+void Renderer::present(UINT sync_interval) {
+  if (swap_) swap_->Present(sync_interval, 0);
 }
 
 }  // namespace fi
