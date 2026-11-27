@@ -68,6 +68,28 @@ static void test_pick_handle() {
   CHECK(!room.pick({{0, 0, 0}, normalize({0.4f, y, -1.4f})}));
 }
 
+static void test_camera_round_trip() {
+  Camera cam;
+  cam.yaw = 0.4f;
+  cam.pitch = -0.2f;
+  float px, py;
+  Ray r = cam.ray(300, 200, 1920, 1080);
+  CHECK(cam.project(r.dir * 3.0f, 1920, 1080, px, py) && near(px, 300, 0.01f) && near(py, 200, 0.01f));
+  CHECK(!cam.project(cam.look() * -1.0f, 1920, 1080, px, py));
+  // A pixel aimed at a panel's point picks that point back.
+  Room room;
+  Panel p;
+  p.yaw = 0.3f;
+  room.panels.push_back(p);
+  room.camera = cam;
+  CHECK(cam.project(point_on(p, 0.25f, 0.75f), 1920, 1080, px, py));
+  auto h = room.pick(cam.ray(px, py, 1920, 1080));
+  CHECK(h && !h->handle && near(h->u, 0.25f, 0.01f) && near(h->v, 0.75f, 0.01f));
+  CHECK(cam.project(handle_point(p), 1920, 1080, px, py));
+  auto hh = room.pick(cam.ray(px, py, 1920, 1080));
+  CHECK(hh && hh->handle);
+}
+
 static void test_place_on_ray() {
   float yaw, height;
   Room::place_on_ray({{0, 0, 0}, normalize({1, 0, -1})}, 2, yaw, height);
@@ -157,6 +179,7 @@ int main() {
   test_pick_straight_ahead();
   test_pick_turned_and_nearest();
   test_pick_handle();
+  test_camera_round_trip();
   test_place_on_ray();
   test_place_new_steps_aside();
   test_json_round_trip();

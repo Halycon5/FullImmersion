@@ -47,6 +47,10 @@ add_executable(FullImmersion WIN32
   src/app/passthrough.cpp)
 target_link_libraries(FullImmersion PRIVATE fi_core fi_common d3dcompiler shell32 ole32)
 
+# The room end to end with simulated hands (moves the real cursor: run it while nobody's at the PC).
+add_executable(e2e_m1 tests/e2e_m1.cpp)
+target_link_libraries(e2e_m1 PRIVATE fi_core fi_common shell32 ole32)
+
 # S0's spikes, kept as small tools.
 add_executable(s1_capture spikes/s1_capture/main.cpp)
 target_link_libraries(s1_capture PRIVATE fi_common)

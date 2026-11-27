@@ -43,7 +43,17 @@ struct Camera {
   float pitch = 0;  // radians, positive looks up
   float fov_y = 70.0f * kPi / 180.0f;
   Vec3 look() const;
+  void basis(Vec3& fwd, Vec3& right, Vec3& up) const;
+  // A pixel of a w x h view into the room (pixel centres at +0.5), and back again.
+  Ray ray(float px, float py, float w, float h) const;
+  bool project(Vec3 p, float w, float h, float& px, float& py) const;  // false if behind you
 };
+
+inline Vec3 cross(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
+
+// The point on the room's side of a panel at (u, v): the inverse of Room::pick.
+Vec3 point_on(const Panel& p, float u, float v);
+Vec3 handle_point(const Panel& p);  // the middle of the panel's handle
 
 struct Room {
   std::vector<Panel> panels;

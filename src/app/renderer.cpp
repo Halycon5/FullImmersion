@@ -103,14 +103,6 @@ winrt::com_ptr<ID3DBlob> compile(const char* entry, const char* target) {
   return code;
 }
 
-Vec3 cross(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
-
-void basis(const Camera& cam, Vec3& f, Vec3& r, Vec3& u) {
-  f = normalize(cam.look());
-  r = normalize(cross(f, {0, 1, 0}));
-  u = cross(r, f);
-}
-
 }  // namespace
 
 bool Renderer::init(HWND hwnd, ID3D11Device* device) {
@@ -201,16 +193,12 @@ void Renderer::resize(UINT w, UINT h) {
 }
 
 Ray Renderer::ray_through(const Camera& cam, float px, float py) const {
-  Vec3 f, r, u;
-  basis(cam, f, r, u);
-  float ty = std::tan(cam.fov_y / 2), tx = ty * float(w_) / float(h_);
-  float x = (px + 0.5f) / float(w_) * 2 - 1, y = 1 - (py + 0.5f) / float(h_) * 2;
-  return {{0, 0, 0}, normalize(f + r * (x * tx) + u * (y * ty))};
+  return cam.ray(px, py, float(w_), float(h_));
 }
 
 void Renderer::draw(const Camera& cam, const std::vector<PanelDraw>& panels) {
   Vec3 f, r, u;
-  basis(cam, f, r, u);
+  cam.basis(f, r, u);
   float ty = std::tan(cam.fov_y / 2), tx = ty * float(w_) / float(h_);
   const float zn = 0.05f, zf = 100.0f;
   // view (rows r, u, -f; the eye at the origin), then a right-handed perspective with depth 0..1

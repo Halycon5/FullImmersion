@@ -13,6 +13,40 @@ Vec3 Camera::look() const {
   return {std::sin(yaw) * cp, std::sin(pitch), -std::cos(yaw) * cp};
 }
 
+void Camera::basis(Vec3& f, Vec3& r, Vec3& u) const {
+  f = normalize(look());
+  r = normalize(cross(f, {0, 1, 0}));
+  u = cross(r, f);
+}
+
+Ray Camera::ray(float px, float py, float w, float h) const {
+  Vec3 f, r, u;
+  basis(f, r, u);
+  float ty = std::tan(fov_y / 2), tx = ty * w / h;
+  float x = (px + 0.5f) / w * 2 - 1, y = 1 - (py + 0.5f) / h * 2;
+  return {{0, 0, 0}, normalize(f + r * (x * tx) + u * (y * ty))};
+}
+
+bool Camera::project(Vec3 p, float w, float h, float& px, float& py) const {
+  Vec3 f, r, u;
+  basis(f, r, u);
+  float z = dot(p, f);
+  if (z <= 1e-4f) return false;
+  float ty = std::tan(fov_y / 2), tx = ty * w / h;
+  float x = dot(p, r) / (z * tx), y = dot(p, u) / (z * ty);
+  px = (x + 1) / 2 * w - 0.5f;
+  py = (1 - y) / 2 * h - 0.5f;
+  return true;
+}
+
+Vec3 point_on(const Panel& p, float u, float v) {
+  return p.centre() + p.right() * ((u - 0.5f) * p.width) + Vec3{0, (0.5f - v) * p.panel_height(), 0};
+}
+
+Vec3 handle_point(const Panel& p) {
+  return p.centre() + Vec3{0, -p.panel_height() / 2 - Panel::kHandleGap - Panel::kHandleHeight / 2, 0};
+}
+
 std::optional<Hit> Room::pick(const Ray& ray) const {
   std::optional<Hit> best;
   for (int i = 0; i < (int)panels.size(); ++i) {
