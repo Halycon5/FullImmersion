@@ -36,7 +36,7 @@ Check ((Call POST /type '{"text": "hi"}').status -eq 403) "typing into a window:
 
 Start-Sleep -Milliseconds 400
 $png = "$PSScriptRoot\..\out\e2e_m3_look.png"
-Invoke-WebRequest -Uri "$base/look?yaw=-10&w=1280&h=720" -Headers @{ Authorization = "Bearer $($door.token)" } -OutFile $png -UseBasicParsing
+Invoke-WebRequest -Uri "$base/look?yaw=-22&fov=75&w=1280&h=720" -Headers @{ Authorization = "Bearer $($door.token)" } -OutFile $png -UseBasicParsing
 $bytes = [IO.File]::ReadAllBytes($png)
 Check ($bytes.Length -gt 10000 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E) "look gives a PNG ($($bytes.Length) bytes)"
 $scene = (Call GET /scene).body | ConvertFrom-Json
