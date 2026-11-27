@@ -52,7 +52,11 @@ tools\fi.ps1 POST /arrange '{"panels": ["docs", "code", "terminal"], "around": 0
 tools\fi.ps1 GET "/look?yaw=0&w=1280&h=720" -Out room.png
 ```
 
-`tools\e2e_m3.bat` tests the door end to end (it never touches the mouse or keyboard).
+For the Switchboard (or any MCP client), `tools/fi-mcp.js` is the same as an MCP server over stdio, no
+dependencies: add a plug on PLUGS with command `node` and args `E:\FullImmersion\tools\fi-mcp.js`, and agents
+whose card allows it get `room_scene`, `room_look`, `room_arrange` and the rest. They pass their own name as `as`.
+
+`tools\e2e_m3.bat` tests the door and the MCP server end to end (it never touches the mouse or keyboard).
 
 **S0, the spikes** (done). Three small programs that proved the hard parts on Milk's PC (Windows 11, RTX 3060,
 Bigscreen Beyond on SteamVR) before the real app is built:
