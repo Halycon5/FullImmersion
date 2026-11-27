@@ -149,7 +149,7 @@ struct App {
       if (it == captures.end()) {
         try {
           ready_window(w);
-          it = captures.emplace(p.window, std::make_unique<WindowCapture>(device.get(), w)).first;
+          it = captures.emplace(p.window, std::make_unique<WindowCapture>(device.get(), w, true)).first;
         } catch (winrt::hresult_error const& e) {
           logf("can't capture %s: 0x%08X", p.exe.c_str(), (unsigned)e.code().value);
           p.window = 0;

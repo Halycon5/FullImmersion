@@ -28,6 +28,7 @@ struct WindowCapture::Impl {
   UINT w = 0, h = 0;
   CaptureStats stats;
   bool border_hidden = false;
+  bool mips = false;
 
   void ensure_texture(UINT nw, UINT nh) {
     if (tex && nw == w && nh == h) return;
@@ -36,19 +37,20 @@ struct WindowCapture::Impl {
     D3D11_TEXTURE2D_DESC d{};
     d.Width = w;
     d.Height = h;
-    d.MipLevels = 1;
+    d.MipLevels = mips ? 0 : 1;  // 0: the whole chain, so small and far panels don't shimmer
     d.ArraySize = 1;
     d.Format = DXGI_FORMAT_B8G8R8A8_TYPELESS;
     d.SampleDesc.Count = 1;
     d.Usage = D3D11_USAGE_DEFAULT;
-    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE | (mips ? D3D11_BIND_RENDER_TARGET : 0);
+    d.MiscFlags = mips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
     tex = nullptr;
     srv_unorm = nullptr;
     srv_srgb = nullptr;
     winrt::check_hresult(device->CreateTexture2D(&d, nullptr, tex.put()));
     D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
     sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    sd.Texture2D.MipLevels = 1;
+    sd.Texture2D.MipLevels = UINT(-1);
     sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     winrt::check_hresult(device->CreateShaderResourceView(tex.get(), &sd, srv_unorm.put()));
     sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
@@ -56,8 +58,9 @@ struct WindowCapture::Impl {
   }
 };
 
-WindowCapture::WindowCapture(ID3D11Device* device, HWND hwnd) : m(std::make_unique<Impl>()) {
+WindowCapture::WindowCapture(ID3D11Device* device, HWND hwnd, bool mips) : m(std::make_unique<Impl>()) {
   m->hwnd = hwnd;
+  m->mips = mips;
   m->device.copy_from(device);
   device->GetImmediateContext(m->ctx.put());
 
@@ -112,6 +115,7 @@ bool WindowCapture::poll() {
   m->ensure_texture(cw, ch);
   D3D11_BOX box{0, 0, 0, cw, ch, 1};
   m->ctx->CopySubresourceRegion(m->tex.get(), 0, 0, 0, 0, src.get(), 0, &box);
+  if (m->mips) m->ctx->GenerateMips(m->srv_srgb.get());  // filtered in linear light
 
   double lat = double(now_100ns() - frame.SystemRelativeTime().count()) / 10000.0;
   m->stats.frames++;

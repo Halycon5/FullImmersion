@@ -147,7 +147,7 @@ bool Renderer::init(HWND hwnd, ID3D11Device* device) {
   winrt::check_hresult(device_->CreateBuffer(&bd, nullptr, cb_panel_.put()));
 
   D3D11_SAMPLER_DESC smd{};
-  smd.Filter = D3D11_FILTER_ANISOTROPIC;
+  smd.Filter = D3D11_FILTER_ANISOTROPIC;  // panels are usually seen at an angle
   smd.MaxAnisotropy = 8;
   smd.AddressU = smd.AddressV = smd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
   smd.MaxLOD = D3D11_FLOAT32_MAX;
