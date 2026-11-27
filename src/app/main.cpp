@@ -332,8 +332,8 @@ struct App {
   void panel_menu(int i) {
     Panel& p = room.panels[i];
     HMENU m = CreatePopupMenu();
-    std::wstring head = widen(p.title.empty() ? p.exe : p.title).substr(0, 60) + (p.window ? L"" : L" (closed)");
-    AppendMenuW(m, MF_STRING | MF_GRAYED, 0, head.c_str());
+    std::wstring title = widen(p.title.empty() ? p.exe : p.title).substr(0, 60) + (p.window ? L"" : L" (closed)");
+    AppendMenuW(m, MF_STRING | MF_GRAYED, 0, title.c_str());
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(m, MF_STRING, kMenuBigger, L"Bigger\tscroll up on the handle");
     AppendMenuW(m, MF_STRING, kMenuSmaller, L"Smaller\tscroll down");
