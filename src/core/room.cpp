@@ -73,11 +73,21 @@ std::optional<Hit> Room::pick(const Ray& ray) const {
 }
 
 void Room::place_on_ray(const Ray& ray, float distance, float& yaw, float& height) {
-  float flat = std::sqrt(ray.dir.x * ray.dir.x + ray.dir.z * ray.dir.z);
-  yaw = std::atan2(ray.dir.x, -ray.dir.z);
-  // Along the ray till it's `distance` out from you, flat; looking near straight up or down, stop at 60 degrees.
-  float t = distance / std::max(flat, 0.5f);
-  height = ray.origin.y + ray.dir.y * t;
+  // Solve |(o + t d).xz| = distance for the t > 0 that leaves the circle.
+  float ox = ray.origin.x, oz = ray.origin.z, dx = ray.dir.x, dz = ray.dir.z;
+  float a = dx * dx + dz * dz, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - distance * distance;
+  float t;
+  if (a < 0.25f * 0.25f) {
+    // Looking near straight up or down: stop where the ray is 60-odd degrees off flat.
+    t = distance / 0.25f;
+  } else {
+    float disc = std::max(0.0f, b * b - 4 * a * c);
+    t = (-b + std::sqrt(disc)) / (2 * a);
+    if (t <= 0) t = distance / std::sqrt(a);
+  }
+  Vec3 p = ray.origin + ray.dir * t;
+  yaw = std::atan2(p.x, -p.z);
+  height = p.y;
 }
 
 void Room::place_new(Panel& p) const {

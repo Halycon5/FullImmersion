@@ -60,7 +60,8 @@ struct Room {
   Camera camera;
 
   std::optional<Hit> pick(const Ray& ray) const;  // the nearest panel the ray meets, front side only
-  // Where a panel at `distance` would go to sit under the ray: its yaw and height.
+  // Where a panel at `distance` from you would go to sit on the ray: its yaw and height. The ray may start
+  // anywhere (a hand); it's followed out to that distance round you, flat.
   static void place_on_ray(const Ray& ray, float distance, float& yaw, float& height);
   // A new panel's spot: straight where you look, nudged so it doesn't sit exactly on another.
   void place_new(Panel& p) const;

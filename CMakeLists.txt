@@ -40,12 +40,13 @@ add_library(fi_common STATIC
 target_include_directories(fi_common PUBLIC src)
 target_link_libraries(fi_common PUBLIC d3d11 dxgi dwmapi windowsapp)
 
-# FullImmersion itself (M1: the flat room).
+# FullImmersion itself (M1: the flat room; M2: --vr, the same room in the headset).
 add_executable(FullImmersion WIN32
   src/app/main.cpp
   src/app/renderer.cpp
-  src/app/passthrough.cpp)
-target_link_libraries(FullImmersion PRIVATE fi_core fi_common d3dcompiler shell32 ole32)
+  src/app/passthrough.cpp
+  src/app/xr.cpp)
+target_link_libraries(FullImmersion PRIVATE fi_core fi_common openxr_loader d3dcompiler shell32 ole32)
 
 # The room end to end with simulated hands (moves the real cursor: run it while nobody's at the PC).
 add_executable(e2e_m1 tests/e2e_m1.cpp)
