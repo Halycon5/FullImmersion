@@ -386,7 +386,9 @@ bool Xr::begin(XrFrame& f) {
     m->eye_views_[e] = views[e];
   }
   XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
-  if (XR_SUCCEEDED(xrLocateSpace(m->view_space, m->local, t, &head))) f.head = to_pose(head.pose);
+  if (XR_SUCCEEDED(xrLocateSpace(m->view_space, m->local, t, &head)) &&
+      (head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
+    f.head = to_pose(head.pose);
   return true;
 }
 

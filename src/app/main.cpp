@@ -563,7 +563,10 @@ struct App {
     // The mirror: your view, a little wider, on the monitor.
     if (visible && renderer.width()) {
       float aspect = float(renderer.width()) / float(renderer.height());
-      View v = View::of_pose(head, -aspect * 0.7f, aspect * 0.7f, -0.7f, 0.7f);
+      Camera level = room.camera;  // where you look, without the head's roll, so the monitor's horizon stays level
+      level.fov_y = 2 * std::atan(0.7f);
+      View v = View::of_camera(level, aspect);
+      v.pos = head.position;
       v.floor_y = xr->floor_y();
       renderer.draw_window(v, mirror, beams);
       renderer.present(0);
