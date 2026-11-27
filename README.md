@@ -26,6 +26,20 @@ when it starts. A log is kept beside it.
 How the mouse reaches a real window: the window is slid behind the room so the point you're on sits under the
 cursor, and the room keeps a one-pixel hole at the cursor's tip (`src/app/passthrough.h`).
 
+**M2, the room in the headset** (`FullImmersion.exe --vr`, SteamVR running, headset on when it starts): the
+same room and layout around you, each window its own OpenXR quad layer so text stays sharp. A small window on
+the monitor mirrors what you see; right-click it to pin a window or quit.
+
+| Do | How (Index controllers) |
+|---|---|
+| Use a window | Point at it: trigger is its left button, A its right button, the stick scrolls it |
+| Carry a panel | Grip on it (or trigger on its bar), move your hand, let go |
+| Nearer or farther / bigger or smaller | While carrying: stick up and down / left and right |
+| Pin a window, quit | Right-click the mirror window on the monitor; Ctrl+Alt+Q |
+
+The cursor follows the hand that last clicked. A window partly off screen is slid on when you point into the
+part that's off, so the click lands. The log notes frames per second and our own time per frame every 5 s.
+
 **S0, the spikes** (done). Three small programs that proved the hard parts on Milk's PC (Windows 11, RTX 3060,
 Bigscreen Beyond on SteamVR) before the real app is built:
 
