@@ -215,6 +215,7 @@ static void test_agents_arrange_a_workspace() {
   CHECK(desk.handle(post("/pin", R"({"window": 10, "width": 0.8})"), 0).status == 200);
   CHECK(desk.handle(post("/pin", R"({"window": 10})"), 0).status == 409);  // already pinned
   CHECK(desk.handle(post("/pin", R"({"match": "nothing like it"})"), 0).status == 404);
+  CHECK(desk.handle(post("/pin", R"({"match": "docs"})"), 0).status == 409);  // only a pinned one matches
   CHECK(room.panels.size() == 3 && room.panels[2].width == 0.8f);
 
   // Docs left, code in the middle, the terminal right, round straight ahead.

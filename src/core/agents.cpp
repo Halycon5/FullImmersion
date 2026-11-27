@@ -156,9 +156,10 @@ AgentReply AgentDesk::handle(const AgentRequest& req, double now) {
         if (double(o.window) == w->n) chosen = &o;
     } else if (auto m = b.get("match"); m && m->kind == Kind::String && !m->s.empty()) {
       std::string want = to_lower(m->s);
-      for (int pass = 0; pass < 2 && !chosen; ++pass)
+      // A window not yet pinned first (by title, then program); failing that, a pinned one, to say so.
+      for (int pass = 0; pass < 4 && !chosen; ++pass)
         for (auto& o : open)
-          if (!taken(o) && to_lower(pass == 0 ? o.title : o.exe).find(want) != std::string::npos) {
+          if (taken(o) == (pass >= 2) && to_lower(pass % 2 == 0 ? o.title : o.exe).find(want) != std::string::npos) {
             chosen = &o;
             break;
           }
