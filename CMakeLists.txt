@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 enable_testing()
 
 # fi_core: the room itself (panels, pointing, layouts). No platform, no GPU: builds and tests anywhere.
-add_library(fi_core STATIC src/core/room.cpp src/core/json.cpp)
+add_library(fi_core STATIC src/core/room.cpp src/core/json.cpp src/core/agents.cpp)
 target_include_directories(fi_core PUBLIC src)
 add_executable(fi_tests tests/test_core.cpp)
 target_link_libraries(fi_tests PRIVATE fi_core)
@@ -45,8 +45,11 @@ add_executable(FullImmersion WIN32
   src/app/main.cpp
   src/app/renderer.cpp
   src/app/passthrough.cpp
-  src/app/xr.cpp)
-target_link_libraries(FullImmersion PRIVATE fi_core fi_common openxr_loader d3dcompiler shell32 ole32)
+  src/app/xr.cpp
+  src/app/agent_door.cpp
+  src/app/cards.cpp)
+target_link_libraries(FullImmersion PRIVATE fi_core fi_common openxr_loader d3dcompiler shell32 ole32 ws2_32 bcrypt
+                      windowscodecs)
 
 # The room end to end with simulated hands (moves the real cursor: run it while nobody's at the PC).
 add_executable(e2e_m1 tests/e2e_m1.cpp)

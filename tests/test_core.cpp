@@ -1,5 +1,6 @@
 // The room's core, tested without a window: picking, placing, layouts, finding windows again.
 #include "core/json.h"
+#include "core/agents.h"
 #include "core/room.h"
 #include <cstdio>
 #include <cmath>
@@ -187,6 +188,83 @@ static void test_reattach() {
   CHECK(reattach(panels, open) == 0);  // nothing found twice
 }
 
+static AgentRequest post(const char* path, const char* body, const char* who = "Ada") {
+  AgentRequest r;
+  r.method = "POST";
+  r.path = path;
+  r.body = body;
+  r.agent = who;
+  return r;
+}
+
+static void test_agents_arrange_a_workspace() {
+  Room room;
+  std::vector<OpenWindow> open = {{10, "chrome.exe", "Docs - Chrome"}, {11, "Code.exe", "main.cpp - VS Code"},
+                                  {12, "WindowsTerminal.exe", "Terminal"}};
+  AgentDesk desk(room);
+  desk.open_windows = [&] { return open; };
+  desk.pin = [&](const OpenWindow& w) {
+    Panel p;
+    p.window = w.window, p.exe = w.exe, p.title = w.title;
+    room.place_new(p);
+    room.panels.push_back(p);
+    return int(room.panels.size()) - 1;
+  };
+  CHECK(desk.handle(post("/pin", R"({"match": "vs code", "yaw": 0})"), 0).status == 200);
+  CHECK(desk.handle(post("/pin", R"({"match": "terminal.exe"})"), 0).status == 200);  // by program
+  CHECK(desk.handle(post("/pin", R"({"window": 10, "width": 0.8})"), 0).status == 200);
+  CHECK(desk.handle(post("/pin", R"({"window": 10})"), 0).status == 409);  // already pinned
+  CHECK(desk.handle(post("/pin", R"({"match": "nothing like it"})"), 0).status == 404);
+  CHECK(desk.handle(post("/pin", R"({"match": "docs"})"), 0).status == 409);  // only a pinned one matches
+  CHECK(room.panels.size() == 3 && room.panels[2].width == 0.8f);
+
+  // Docs left, code in the middle, the terminal right, round straight ahead.
+  auto r = desk.handle(post("/arrange", R"({"panels": ["docs", "main.cpp", "terminal"], "around": 0, "distance": 1.5})"), 0);
+  CHECK(r.status == 200);
+  CHECK(room.panels[2].yaw < room.panels[0].yaw && room.panels[0].yaw < room.panels[1].yaw);
+  CHECK(std::fabs(room.panels[0].yaw) < 0.2f);  // the middle one is near straight ahead
+  CHECK(room.panels[1].distance == 1.5f);
+  // Neighbours don't overlap: the gap between edges along the circle is about the gap asked for.
+  float edge_gap = (room.panels[0].yaw - room.panels[2].yaw) * 1.5f - (room.panels[0].width + room.panels[2].width) / 2;
+  CHECK(std::fabs(edge_gap - 0.06f) < 0.001f);
+
+  CHECK(desk.handle(post("/move", R"({"panel": "terminal", "yaw": 90, "height": 0.2})"), 0).status == 200);
+  CHECK(std::fabs(room.panels[1].yaw - kPi / 2) < 1e-4f && room.panels[1].height == 0.2f);
+  CHECK(desk.handle(post("/move", R"({"panel": 7})"), 0).status == 404);
+  CHECK(desk.changed);
+}
+
+static void test_agents_presence_notes_and_refusals() {
+  Room room;
+  Panel p;
+  p.exe = "chrome.exe", p.title = "Docs";
+  room.panels.push_back(p);
+  AgentDesk desk(room);
+  CHECK(desk.handle(post("/presence", R"({"state": "working", "says": "on it", "looking_at": "docs"})"), 1000).status == 200);
+  CHECK(desk.handle(post("/presence", R"({"state": "waiting"})", "Bea"), 1000).status == 200);
+  CHECK(desk.agents.size() == 2 && desk.agents[0].looking_at == 0 && desk.agents[0].says == "on it");
+  CHECK(desk.agents[0].yaw != desk.agents[1].yaw);  // they don't stand on each other
+  desk.tick(1000 + AgentDesk::kSaysMs + 1);
+  CHECK(desk.agents[0].says.empty());  // what was said fades
+  desk.tick(1000 + AgentDesk::kAgentTimeoutMs + 1);
+  CHECK(desk.agents.empty());  // and agents not heard from leave
+
+  auto n = desk.handle(post("/note", R"({"text": "read this first", "near": 0})"), 0);
+  CHECK(n.status == 200 && desk.notes.size() == 1 && desk.notes[0].yaw > room.panels[0].yaw);
+  CHECK(desk.handle(post("/unnote", R"({"id": 1})"), 0).status == 200 && desk.notes.empty());
+
+  CHECK(desk.handle(post("/click", R"({"panel": 0, "u": 0.5, "v": 0.5})"), 0).status == 403);
+  CHECK(desk.handle(post("/type", R"({"text": "hi"})"), 0).status == 403);
+  CHECK(desk.handle(post("/move", "not json"), 0).status == 400);
+
+  AgentRequest get;
+  get.method = "GET";
+  get.path = "/scene";
+  auto s = desk.handle(get, 0);
+  json::Value v;
+  CHECK(s.status == 200 && json::parse(s.body, v) && v.get("panels") && v.get("panels")->a.size() == 1);
+}
+
 int main() {
   test_pick_straight_ahead();
   test_pick_turned_and_nearest();
@@ -198,6 +276,8 @@ int main() {
   test_json_round_trip();
   test_json_rejects();
   test_reattach();
+  test_agents_arrange_a_workspace();
+  test_agents_presence_notes_and_refusals();
   std::printf("%d checks, %d failed\n", g_checks, g_failed);
   return g_failed ? 1 : 0;
 }

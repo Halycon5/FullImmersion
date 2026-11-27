@@ -14,12 +14,14 @@ struct PanelDraw {
   bool handle_hovered = false;
   bool grabbed = false;
   bool picture_elsewhere = false;  // the headset composites the picture itself (a quad layer): draw the handle only
+  bool bare = false;               // no handle: a card, not a window
 };
 
 struct Beam {  // a pointer: from a hand to what it points at
   Vec3 from, to;
   float width = 0.004f;
   float rgba[4] = {0.8f, 0.6f, 1.0f, 0.8f};  // premultiplied by the shader
+  bool behind = false;  // drawn before the panels, so they cover it (an agent's line to what it looks at)
 };
 
 struct View {  // where a picture is seen from
@@ -55,6 +57,7 @@ class Renderer {
 
  private:
   void make_targets();
+  void draw_beams(const std::vector<Beam>& beams, bool behind);
   winrt::com_ptr<ID3D11Device> device_;
   winrt::com_ptr<ID3D11DeviceContext> ctx_;
   winrt::com_ptr<IDXGISwapChain1> swap_;
