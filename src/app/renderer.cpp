@@ -329,7 +329,8 @@ void Renderer::draw_view(const View& v, ID3D11RenderTargetView* rtv, UINT w, UIN
                {pr.x, pr.y, pr.z, 0},
                {0, hh, 0, 0},
                {pd->hovered ? 1.f : 0.f, pd->picture ? 1.f : 0.f, pd->handle_hovered ? 1.f : 0.f, pd->grabbed ? 1.f : 0.f},
-               {p.handle_width() / 2, Panel::kHandleGap, Panel::kHandleHeight, pd->picture_elsewhere ? 0.f : 1.f}});
+               {pd->bare ? 0.f : p.handle_width() / 2, Panel::kHandleGap, Panel::kHandleHeight,
+                pd->picture_elsewhere ? 0.f : 1.f}});
     ID3D11ShaderResourceView* srv = pd->picture;
     ctx_->PSSetShaderResources(0, 1, &srv);
     ctx_->Draw(12, 0);

@@ -14,6 +14,7 @@ struct PanelDraw {
   bool handle_hovered = false;
   bool grabbed = false;
   bool picture_elsewhere = false;  // the headset composites the picture itself (a quad layer): draw the handle only
+  bool bare = false;               // no handle: a card, not a window
 };
 
 struct Beam {  // a pointer: from a hand to what it points at

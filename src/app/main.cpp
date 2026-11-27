@@ -11,6 +11,12 @@
 //   Stick on a window: scroll it. Grip on a panel (or trigger on its handle): grab it and carry it round you;
 //   while holding, stick up/down pushes it away or pulls it in, left/right makes it smaller or bigger.
 //   A small window on the monitor mirrors the headset; right-click it to pin a window or quit.
+//
+// M3: agents come in through a door on localhost (src/app/agent_door.h, src/core/agents.h). They can read the
+// scene, pin, move and arrange panels, leave notes, say what they're doing and get a picture of the room. They
+// show as name cards round you, with a line to what they're looking at. They can't click or type into windows.
+#include "app/agent_door.h"
+#include "app/cards.h"
 #include "app/passthrough.h"
 #include "app/renderer.h"
 #include "app/xr.h"
@@ -82,6 +88,14 @@ struct App {
   std::optional<Hit> hover;  // what the cursor is on now
   std::set<uint64_t> fresh;  // windows with a new picture this frame
 
+  // --- agents (M3) ---
+  AgentDesk desk{room};
+  AgentDoor door;
+  std::unique_ptr<Cards> cards;
+  std::vector<Panel> extras;  // this frame's agent cards and notes, drawn like panels
+  std::vector<ID3D11ShaderResourceView*> extra_pictures;
+  std::vector<Beam> agent_beams;
+
   // --- the headset (M2) ---
   bool vr = false;
   std::unique_ptr<Xr> xr;
@@ -136,7 +150,7 @@ struct App {
     if (IsIconic(w) || IsZoomed(w)) ShowWindow(w, SW_RESTORE);  // a minimised window sends no pictures
   }
 
-  void pin(const OpenWindow& w) {
+  int pin(const OpenWindow& w) {
     HWND h = (HWND)(uintptr_t)w.window;
     ready_window(h);
     RECT fr = frame_bounds(h);
@@ -151,6 +165,7 @@ struct App {
     room.panels.push_back(p);
     logf("pinned %s \"%s\"", p.exe.c_str(), p.title.c_str());
     touch();
+    return int(room.panels.size()) - 1;
   }
 
   void unpin(int i) {
@@ -158,6 +173,10 @@ struct App {
     captures.erase(room.panels[i].window);
     logf("unpinned %s", room.panels[i].exe.c_str());
     room.panels.erase(room.panels.begin() + i);
+    for (auto& a : desk.agents) {
+      if (a.looking_at == i) a.looking_at = -1;
+      else if (a.looking_at > i) --a.looking_at;
+    }
     for (auto& h : hands) {
       if (h.grabbed == i) h.grabbed = -1;
       else if (h.grabbed > i) --h.grabbed;
@@ -381,6 +400,131 @@ struct App {
     logf(visible ? "room shown" : "room hidden");
   }
 
+  // --- agents ---
+  void open_door(const std::wstring& dir) {
+    cards = std::make_unique<Cards>(device.get());
+    desk.open_windows = [this] { return open_windows(); };
+    desk.pin = [this](const OpenWindow& w) { return pin(w); };
+    desk.unpin = [this](int i) { unpin(i); };
+    desk.is_live = [this](int i) { return picture_of(room.panels[i]) != nullptr; };
+    std::string err;
+    if (door.open(dir, err)) logf("agents' door open on 127.0.0.1:%d", door.port());
+    else logf("agents' door didn't open: %s", err.c_str());
+  }
+
+  // Requests from agents, then their cards, notes and lines for this frame.
+  void agents_frame() {
+    double now = now_ms();
+    door.serve([&](const AgentRequest& req) {
+      if (req.method == "GET" && req.path == "/look") return look(req);
+      AgentReply r = desk.handle(req, now);
+      if (r.status == 200 && req.method == "POST") logf("agent %s: %s %s", req.agent.c_str(), req.path.c_str(), req.body.substr(0, 200).c_str());
+      if (desk.changed) {
+        desk.changed = false;
+        touch();
+      }
+      return r;
+    });
+    desk.tick(now);
+
+    static const uint32_t palette[] = {0xC08CFF, 0x6FD3FF, 0xFF9F6F, 0x7FE0A0, 0xFFD36F, 0xFF7FB8};
+    extras.clear();
+    extra_pictures.clear();
+    agent_beams.clear();
+    extras.reserve(desk.agents.size() + desk.notes.size());
+    for (auto& a : desk.agents) {
+      uint32_t colour = palette[std::hash<std::string>{}(a.name) % 6];
+      Panel c;
+      c.exe = "agent";
+      c.yaw = a.yaw;
+      c.height = 0.42f;
+      c.distance = 1.75f;
+      c.width = 0.32f;
+      auto* pic = cards->get(widen(a.name + ", " + a.state), widen(a.says), colour, c.aspect);
+      extras.push_back(c);
+      extra_pictures.push_back(pic);
+      if (a.looking_at >= 0 && a.looking_at < (int)room.panels.size()) {
+        const Panel& t = room.panels[a.looking_at];
+        Beam b;
+        b.from = c.centre() - Vec3{0, c.panel_height() / 2, 0};
+        b.to = t.centre() + Vec3{0, t.panel_height() / 2, 0};
+        b.width = 0.003f;
+        b.rgba[0] = float((colour >> 16) & 255) / 255, b.rgba[1] = float((colour >> 8) & 255) / 255;
+        b.rgba[2] = float(colour & 255) / 255, b.rgba[3] = 0.6f;
+        agent_beams.push_back(b);
+      }
+    }
+    for (auto& n : desk.notes) {
+      Panel c;
+      c.exe = "note";
+      c.yaw = n.yaw;
+      c.height = n.height;
+      c.distance = n.distance;
+      c.width = n.width;
+      auto* pic = cards->get(widen("Note from " + n.by), widen(n.text), 0xFFD36F, c.aspect);
+      extras.push_back(c);
+      extra_pictures.push_back(pic);
+    }
+    cards->sweep();
+  }
+
+  void add_extras(std::vector<PanelDraw>& draws) {
+    for (size_t i = 0; i < extras.size(); ++i) {
+      PanelDraw d;
+      d.panel = &extras[i];
+      d.picture = extra_pictures[i];
+      d.bare = true;
+      draws.push_back(d);
+    }
+  }
+
+  // GET /look?yaw=&pitch=&fov=&w=&h= : a PNG of the room from where you stand (degrees; defaults: where you
+  // look, 70 degrees tall, 1280 x 720).
+  AgentReply look(const AgentRequest& req) {
+    auto q = [&](const char* k, double fallback) {
+      auto it = req.query.find(k);
+      return it == req.query.end() || it->second.empty() ? fallback : std::atof(it->second.c_str());
+    };
+    UINT w = UINT(std::clamp(q("w", 1280), 64.0, 2560.0)), h = UINT(std::clamp(q("h", 720), 64.0, 2560.0));
+    Camera c = room.camera;
+    c.yaw = float(q("yaw", c.yaw * 180 / kPi) * kPi / 180);
+    c.pitch = std::clamp(float(q("pitch", c.pitch * 180 / kPi) * kPi / 180), -1.5f, 1.5f);
+    c.fov_y = std::clamp(float(q("fov", 70) * kPi / 180), 0.2f, 2.6f);
+    View v = View::of_camera(c, float(w) / float(h));
+    if (vr) {
+      v.pos = head.position;
+      v.floor_y = xr->floor_y();
+    }
+    D3D11_TEXTURE2D_DESC td{};
+    td.Width = w;
+    td.Height = h;
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_B8G8R8A8_TYPELESS;
+    td.SampleDesc.Count = 1;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET;
+    winrt::com_ptr<ID3D11Texture2D> tex;
+    winrt::com_ptr<ID3D11RenderTargetView> rtv;
+    D3D11_RENDER_TARGET_VIEW_DESC rd{};
+    rd.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    if (FAILED(device->CreateTexture2D(&td, nullptr, tex.put())) ||
+        FAILED(device->CreateRenderTargetView(tex.get(), &rd, rtv.put())))
+      return {500, "application/json", "{\"error\": \"no picture\"}"};
+    std::vector<PanelDraw> draws;
+    for (auto& p : room.panels) {
+      PanelDraw d;
+      d.panel = &p;
+      d.picture = picture_of(p);
+      draws.push_back(d);
+    }
+    add_extras(draws);
+    renderer.draw_view(v, rtv.get(), w, h, draws, agent_beams);
+    std::string png = encode_png(read_pixels(device.get(), tex.get(), w, h), w, h);
+    if (png.empty()) return {500, "application/json", "{\"error\": \"couldn't encode the picture\"}"};
+    return {200, "image/png", std::move(png)};
+  }
+
   // --- the headset ---
 
   // The cursor onto (u, v) of a real window, for a controller. A point off every monitor (a panel can show a
@@ -498,6 +642,7 @@ struct App {
       return;
     }
     update_windows();
+    agents_frame();
     XrFrame f;
     bool live = xr->begin(f);  // waits for the headset's next frame
     double t0 = now_ms();
@@ -558,6 +703,9 @@ struct App {
       d.picture_elsewhere = layered[i];
       eyes.push_back(d);
     }
+    add_extras(mirror);
+    add_extras(eyes);
+    beams.insert(beams.end(), agent_beams.begin(), agent_beams.end());
     if (live) xr->end(f, eyes, beams, layers, dots);
 
     // The mirror: your view, a little wider, on the monitor.
@@ -600,6 +748,7 @@ struct App {
   void frame() {
     if (vr) return vr_frame();
     update_windows();
+    agents_frame();
     POINT local;
     hover.reset();
     if (visible && drag == Drag::None && cursor_in_room(local)) hover = pick_at(local);
@@ -617,7 +766,8 @@ struct App {
       draws.push_back(d);
     }
     if (visible) {
-      renderer.draw(room.camera, draws);
+      add_extras(draws);
+      renderer.draw(room.camera, draws, agent_beams);
       renderer.present();
     } else {
       Sleep(16);
@@ -754,6 +904,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
   app.pass = std::make_unique<Passthrough>(app.hwnd);
   app.load();
   reattach(app.room.panels, app.open_windows());
+  app.open_door(dir);
 
   if (!RegisterHotKey(app.hwnd, kHotkeyToggle, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'F'))
     logf("Ctrl+Alt+F is taken by another program");
@@ -781,6 +932,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     if (h.button_down) app.pass->send_button(WM_LBUTTONUP);
     if (h.right_down) app.pass->send_button(WM_RBUTTONUP);
   }
+  app.door.close();
   app.pass->close();
   app.save();
   app.xr.reset();
