@@ -580,8 +580,13 @@ struct App {
     if (now_ms() - vr_stat_at > 5000) {
       double secs = (now_ms() - vr_stat_at) / 1000.0;
       if (vr_stat_at > 0)
-        logf("vr: %.1f frames/s, %.2f ms CPU each, %d not shown, %zu window layers, floor %.2f m", vr_frames / secs,
-             vr_frames ? vr_cpu_ms / vr_frames : 0.0, vr_dropped, layers.size(), xr->floor_y());
+      {
+        Vec3 hf = rotate(head.orientation, {0, 0, -1}), hu = rotate(head.orientation, {0, 1, 0});
+        logf("vr: %.1f frames/s, %.2f ms CPU each, %d not shown, %zu window layers, floor %.2f m; head at "
+             "(%.2f %.2f %.2f) looking (%.2f %.2f %.2f) up (%.2f %.2f %.2f)",
+             vr_frames / secs, vr_frames ? vr_cpu_ms / vr_frames : 0.0, vr_dropped, layers.size(), xr->floor_y(),
+             head.position.x, head.position.y, head.position.z, hf.x, hf.y, hf.z, hu.x, hu.y, hu.z);
+      }
       vr_stat_at = now_ms();
       vr_frames = vr_dropped = 0;
       vr_cpu_ms = 0;
