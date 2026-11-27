@@ -15,7 +15,10 @@ ping -n 4 127.0.0.1 > nul
 start "" build\Release\FullImmersion.exe
 ping -n 5 127.0.0.1 > nul
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\e2e_m3.ps1 > out\e2e_m3.log 2>&1
-echo DONE %ERRORLEVEL% >> out\e2e_m3.log
+set E1=%ERRORLEVEL%
+node tools\test-fi-mcp.js >> out\e2e_m3.log 2>&1
+set E2=%ERRORLEVEL%
+echo DONE %E1% %E2% >> out\e2e_m3.log
 build\Release\s1_capture.exe FullImmersion.exe 1 > nul 2>&1
 copy /y out\s1_last.bmp out\e2e_m3_room.bmp > nul
 taskkill /im FullImmersion.exe > nul 2>&1
